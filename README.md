@@ -267,6 +267,10 @@ or None of the above; in the second list, select UTC
     ```
 2. Copy **client_secrets.json** and **app_secrets.json** files from local
 machine to application directory
+    ```
+    scp -i /path/to/ssh/key -P 2200 /path/to/local/client_secrets.json ubuntu@18.216.98.6:/var/www/udacity-fsd-project2-item-catalog/client_secrets.json
+    scp -i /path/to/ssh/key -P 2200 /path/to/local/app_secrets.json ubuntu@18.216.98.6:/var/www/udacity-fsd-project2-item-catalog/app_secrets.json
+    ```
 3. Create catalog database user for use by my web application:
     1. Momentarily swith to the PostgreSQL super user:
         ```
@@ -416,3 +420,5 @@ I used the following 3rd party resources to aid in completing the project.
 - Configure Apache
     - http://flask.pocoo.org/docs/1.0/deploying/mod_wsgi/
     - http://httpd.apache.org/docs/2.4/
+- scp to copy files from local machine to remote
+    - https://linux.die.net/man/1/scp
