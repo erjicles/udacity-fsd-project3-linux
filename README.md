@@ -248,7 +248,15 @@ or None of the above; in the second list, select UTC
     ```
 
 
-### 10. Bring all applications up to date
+### 10. Install NTP
+1. ssh into the server
+2. Install ntp:
+    ```
+    sudo apt-get install ntp
+    ```
+
+
+### 11. Bring all applications up to date
 
 1. ssh into the server
 2. Run the following commands:
@@ -258,7 +266,7 @@ or None of the above; in the second list, select UTC
     ```
 
 
-### 11. Deploy Web Application
+### 12. Deploy Web Application
 0. ssh into the server
 1. Clone web application to application directory:
     ```
