@@ -412,6 +412,188 @@ machine to application directory
         sudo service apache2 restart
         ```
 
+### 13. Enable https using Let's Encrypt
+
+1. Install the Let's Encrypt Client (Certbot)
+
+First, add the repository:
+```
+sudo add-apt-repository ppa:certbot/certbot
+```
+
+Get any updates:
+```
+sudo apt-get update
+```
+
+Install Certbot:
+```
+sudo apt-get install python-certbot-apache
+```
+
+2. Prepare the conf file
+
+This step is currently necessary due to this
+[known issue](https://github.com/certbot/certbot/issues/4880),
+but may become unnecessary once patched.
+
+The crux of the matter is that certbot needs to update the apache conf file to
+add configuration to enable https. If the conf file doesn't already contain a
+virtualhost section listening on port 443, then certbot creates a new file and
+copies over the config from the port 80 virtualhost. This duplicates the WSGI
+process definition and results in a duplicate name error.
+
+To avoid the error, we simply add a virtualhost listener for port 443 in the
+existing itemcatalog.conf file before running certbot, as described
+[here](https://stackoverflow.com/questions/47803081/certbot-apache-error-name-duplicates-previous-wsgi-daemon-definition).
+
+Edit the application sites-enabled config file:
+```
+sudo nano /etc/apache2/sites-enabled/itemcatalog.conf
+```
+Modify the file so that it has the following contents, and save:
+```
+<VirtualHost *:80>
+    Include /var/www/udacity-fsd-project2-item-catalog/apache_conf/itemcatalog-common.conf
+    
+    WSGIApplicationGroup %{GLOBAL}
+    WSGIDaemonProcess itemcatalog user=catalog group=catalog threads=5 processes=2 home=/var/www/udacity-fsd-project2-item-catalog
+    WSGIProcessGroup itemcatalog
+</VirtualHost>
+
+<VirtualHost *:443>
+    Include /var/www/udacity-fsd-project2-item-catalog/apache_conf/itemcatalog-common.conf
+    WSGIProcessGroup itemcatalog
+</VirtualHost>
+```
+
+Notice that the new conf file references a common configuration file that we
+need to create.
+
+First, create the directory containing the common config file:
+```
+sudo mkdir /var/www/udacity-fsd-project2-item-catalog/apache_conf
+```
+
+Next, create the common config file, and then edit it:
+```
+sudo touch /var/www/udacity-fsd-project2-item-catalog/apache_conf/itemcatalog-common.conf
+sudo nano /var/www/udacity-fsd-project2-item-catalog/apache_conf/itemcatalog-common.conf
+```
+
+Make sure it contains the following, and save:
+```
+ServerName erikronaldjohnson.com
+ServerAlias www.erikronaldjohnson.com
+ServerAdmin webmaster@localhost
+
+DocumentRoot /var/www/udacity-fsd-project2-item-catalog/public_html
+
+ErrorLog ${APACHE_LOG_DIR}/error.log
+CustomLog ${APACHE_LOG_DIR}/access.log combined
+
+WSGIScriptAlias / /var/www/udacity-fsd-project2-item-catalog/public_html/itemcatalog.wsgi
+
+Alias /static /var/www/udacity-fsd-project2-item-catalog/static
+<Directory /var/www/udacity-fsd-project2-item-catalog/static>
+    Require all granted
+</Directory>
+
+<Directory /var/www/udacity-fsd-project2-item-catalog/public_html>
+    Require all granted
+</Directory>
+```
+
+
+3. Run Certbot
+
+Run certbot to automatically obtain a new SSL certificate for 
+erikronaldjohnson.com and www.erikronaldjohnson.com, and configure apache to
+utilize the certificates and enable ssl:
+```
+sudo certbot --apache -d erikronaldjohnson.com -d www.erikronaldjohnson.com
+```
+Make sure to allow the process to configure apache to redirect all traffic to
+HTTPS when prompted.
+
+This should result in a message similar to the following:
+```
+Congratulations! You have successfully enabled https://erikronaldjohnson.com and
+https://www.erikronaldjohnson.com
+
+You should test your configuration at:
+https://www.ssllabs.com/ssltest/analyze.html?d=erikronaldjohnson.com
+https://www.ssllabs.com/ssltest/analyze.html?d=www.erikronaldjohnson.com
+- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+IMPORTANT NOTES:
+ - Congratulations! Your certificate and chain have been saved at:
+   /etc/letsencrypt/live/erikronaldjohnson.com-0002/fullchain.pem
+   Your key file has been saved at:
+   /etc/letsencrypt/live/erikronaldjohnson.com-0002/privkey.pem
+   Your cert will expire on 2019-09-13. To obtain a new or tweaked
+   version of this certificate in the future, simply run certbot again
+   with the "certonly" option. To non-interactively renew *all* of
+   your certificates, run "certbot renew"
+```
+
+This should also result in the following final itemcatalog.conf file (note -
+the automatically-generated ssl certificate filenames may differ):
+
+```
+<VirtualHost *:80>
+    Include /var/www/udacity-fsd-project2-item-catalog/apache_conf/itemcatalog-common.conf
+    
+    WSGIApplicationGroup %{GLOBAL}
+    WSGIDaemonProcess itemcatalog user=catalog group=catalog threads=5 processes=2 home=/var/www/udacity-fsd-project2-item-catalog
+    WSGIProcessGroup itemcatalog
+    
+    RewriteEngine on
+    RewriteCond %{SERVER_NAME} =www.erikronaldjohnson.com [OR]
+    RewriteCond %{SERVER_NAME} =erikronaldjohnson.com
+    RewriteRule ^ https://%{SERVER_NAME}%{REQUEST_URI} [END,NE,R=permanent]
+</VirtualHost>
+
+<VirtualHost *:443>
+    Include /var/www/udacity-fsd-project2-item-catalog/apache_conf/itemcatalog-common.conf
+    WSGIProcessGroup itemcatalog
+    
+    Include /etc/letsencrypt/options-ssl-apache.conf
+    SSLCertificateFile /etc/letsencrypt/live/erikronaldjohnson.com-0002/fullchain.pem
+    SSLCertificateKeyFile /etc/letsencrypt/live/erikronaldjohnson.com-0002/privkey.pem
+</VirtualHost>
+```
+
+4. Update psycopg2
+
+This step is necessary because incompatible versions of psycopg2 and apache
+mod_ssl result in 
+[segmentation faults](https://github.com/psycopg/psycopg2/issues/543)
+that cause the WSGI daemon process to crash and restart.
+
+First, update pip for python3:
+```
+pip3 install --upgrade pip setuptools wheel
+```
+
+Next, install packages required for psycopg2. If this step is skipped, it
+results in errors when installing psycopg2 as documented
+[here](https://stackoverflow.com/questions/28253681/you-need-to-install-postgresql-server-dev-x-y-for-building-a-server-side-extensi/43512004#43512004):
+```
+sudo apt-get install python-psycopg2
+sudo apt-get install libpq-dev
+```
+
+Next, install/update psycopg2:
+```
+sudo -H pip3 install psycopg2
+```
+
+Finally, restart apache:
+```
+sudo service apache2 restart
+```
+
 
 ## Third Party Resources
 I used the following 3rd party resources to aid in completing the project.
@@ -430,3 +612,5 @@ I used the following 3rd party resources to aid in completing the project.
     - http://httpd.apache.org/docs/2.4/
 - scp to copy files from local machine to remote
     - https://linux.die.net/man/1/scp
+- Configure https using Let's Encrypt certificate
+    - https://www.digitalocean.com/community/tutorials/how-to-secure-apache-with-let-s-encrypt-on-ubuntu-16-04
